@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#090d1b">
+  <title>ORBIT BREAK — a one-prompt game</title>
+  <style>
+    :root { color-scheme: dark; font: 500 16px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; color: #e8f2ff; background: radial-gradient(ellipse at 50% 12%, #18204a 0, #090d1b 56%, #050711 100%); }
+    main { width: min(100%, 520px); padding: 22px; }
+    header { display: flex; justify-content: space-between; align-items: end; margin: 0 2px 12px; }
+    h1 { margin: 0; font-size: clamp(20px, 6vw, 29px); letter-spacing: .14em; }
+    .tag { color: #8793bc; font-size: 10px; letter-spacing: .15em; }
+    #score { color: #72f7dc; font-size: 15px; }
+    .screen { position: relative; overflow: hidden; border: 1px solid #536089; border-radius: 16px; box-shadow: 0 0 44px #4766ff22, inset 0 0 32px #21356b38; background: #080d20; }
+    canvas { display: block; width: 100%; aspect-ratio: 4 / 5; touch-action: none; }
+    #overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: #070b19b8; backdrop-filter: blur(5px); }
+    #overlay[hidden] { display: none; }
+    .card { max-width: 310px; }
+    .eyebrow { color: #72f7dc; font-size: 10px; letter-spacing: .22em; }
+    .card h2 { margin: 10px 0 6px; font-size: 28px; letter-spacing: .08em; }
+    .card p { color: #aab4d4; font: 13px/1.65 system-ui, sans-serif; }
+    button { border: 0; border-radius: 8px; padding: 12px 18px; color: #07101a; background: #72f7dc; font: 800 12px ui-monospace, monospace; letter-spacing: .12em; cursor: pointer; }
+    footer { display: flex; justify-content: space-between; gap: 12px; margin: 11px 2px 0; color: #8c98bd; font-size: 10px; }
+    .accent { color: #f78bff; }
+  </style>
+</head>
+<body>
+  <main>
+    <header><div><div class="tag">ONE PROMPT · ONE TINY GAME</div><h1>ORBIT BREAK</h1></div><div id="score">0000</div></header>
+    <section class="screen" aria-label="Orbit Break game">
+      <canvas id="game" width="480" height="600" aria-label="Dodge the red shards and collect cyan stars"></canvas>
+      <div id="overlay"><div class="card"><div class="eyebrow">A 60-SECOND BUILD</div><h2>BREAK ORBIT</h2><p>Slide through the falling shards. Catch cyan stars to boost your score. Survive for 30 seconds.</p><button id="start">START RUN ↗</button></div></div>
+    </section>
+    <footer><span>← → / A D TO MOVE</span><span class="accent">DODGE · COLLECT · SURVIVE</span></footer>
+  </main>
+  <script>
+    const canvas = document.querySelector('#game');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.querySelector('#overlay');
+    const scoreLabel = document.querySelector('#score');
+    const W = canvas.width, H = canvas.height;
+    let player, hazards, stars, particles, keys, score, elapsed, last, playing, spawn;
+    const rand = (a, b) => a + Math.random() * (b - a);
+    function reset() {
+      player = { x: W / 2, y: H - 76, r: 13, speed: 320 };
+      hazards = []; stars = []; particles = []; keys = new Set(); score = 0; elapsed = 0; last = 0; spawn = 0; playing = true;
+      overlay.hidden = true;
+      requestAnimationFrame(frame);
+    }
+    function burst(x, y, color) {
+      for (let i = 0; i < 10; i++) particles.push({ x, y, vx: rand(-100, 100), vy: rand(-120, 70), life: rand(.25, .55), color });
+    }
+    function addThing() {
+      if (Math.random() < .24) stars.push({ x: rand(30, W - 30), y: -20, r: 8, vy: rand(150, 220) });
+      else hazards.push({ x: rand(24, W - 24), y: -28, r: rand(12, 21), vy: rand(180, 300), spin: rand(0, 6) });
+    }
+    function frame(now) {
+      if (!playing) return;
+      const dt = Math.min((now - (last || now)) / 1000, .035); last = now; elapsed += dt; spawn -= dt;
+      if (spawn <= 0) { addThing(); spawn = Math.max(.22, .62 - elapsed * .008); }
+      if (keys.has('arrowleft') || keys.has('a')) player.x -= player.speed * dt;
+      if (keys.has('arrowright') || keys.has('d')) player.x += player.speed * dt;
+      player.x = Math.max(22, Math.min(W - 22, player.x));
+      hazards.forEach(h => { h.y += h.vy * dt; h.spin += dt * 2; });
+      stars.forEach(s => s.y += s.vy * dt);
+      hazards = hazards.filter(h => h.y < H + 30); stars = stars.filter(s => s.y < H + 20);
+      for (const h of hazards) if (Math.hypot(h.x - player.x, h.y - player.y) < h.r + player.r - 3) { burst(player.x, player.y, '#ff5b83'); finish(false); return; }
+      stars = stars.filter(s => { if (Math.hypot(s.x - player.x, s.y - player.y) < s.r + player.r) { score += 250; burst(s.x, s.y, '#72f7dc'); return false; } return true; });
+      score += dt * 32; scoreLabel.textContent = String(Math.floor(score)).padStart(4, '0');
+      draw();
+      if (elapsed >= 30) { finish(true); return; }
+      requestAnimationFrame(frame);
+    }
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#101936'); bg.addColorStop(1, '#080c1c'); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#8ba6ff12'; ctx.lineWidth = 1;
+      for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      for (const h of hazards) { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.spin); ctx.shadowBlur = 18; ctx.shadowColor = '#ff4f75'; ctx.fillStyle = '#ff5578'; ctx.beginPath(); ctx.moveTo(0, -h.r); ctx.lineTo(h.r * .72, h.r * .7); ctx.lineTo(-h.r * .72, h.r * .7); ctx.closePath(); ctx.fill(); ctx.restore(); }
+      for (const s of stars) { ctx.shadowBlur = 18; ctx.shadowColor = '#72f7dc'; ctx.fillStyle = '#72f7dc'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; }
+      ctx.shadowBlur = 22; ctx.shadowColor = '#8da7ff'; ctx.fillStyle = '#d9e5ff'; ctx.beginPath(); ctx.moveTo(player.x, player.y - 16); ctx.lineTo(player.x + 12, player.y + 12); ctx.lineTo(player.x, player.y + 7); ctx.lineTo(player.x - 12, player.y + 12); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#aab4d4'; ctx.font = '12px monospace'; ctx.fillText(`TIME ${Math.ceil(30 - elapsed).toString().padStart(2, '0')}`, 16, 24);
+      for (const p of particles) { p.x += p.vx * .016; p.y += p.vy * .016; p.life -= .016; ctx.globalAlpha = Math.max(0, p.life * 2); ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3); } ctx.globalAlpha = 1; particles = particles.filter(p => p.life > 0);
+    }
+    function finish(won) { playing = false; draw(); overlay.hidden = false; overlay.querySelector('.eyebrow').textContent = won ? 'ORBIT MASTERED' : 'RUN ENDED'; overlay.querySelector('h2').textContent = won ? 'YOU SURVIVED' : 'SHARD HIT'; overlay.querySelector('p').textContent = `${score} points · ${won ? '30 seconds in the clear.' : 'One more run? Your best is one star away.'}`; document.querySelector('#start').textContent = 'PLAY AGAIN ↗'; }
+    document.querySelector('#start').addEventListener('click', reset);
+    window.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (['arrowleft','arrowright','a','d'].includes(k)) { e.preventDefault(); keys?.add(k); } });
+    window.addEventListener('keyup', e => keys?.delete(e.key.toLowerCase()));
+    canvas.addEventListener('pointermove', e => { if (playing && e.buttons) player.x = (e.offsetX / canvas.clientWidth) * W; });
+  </script>
+</body>
+</html>
